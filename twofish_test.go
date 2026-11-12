@@ -336,6 +336,13 @@ func FuzzRoundTrip(f *testing.F) {
 	f.Add(make([]byte, 16), make([]byte, 16))
 	f.Add(make([]byte, 24), []byte("0123456789abcdef"))
 	f.Add(bytes.Repeat([]byte{0xff}, 32), bytes.Repeat([]byte{0xa5}, 16))
+	// 11 blocks: two 4-block batches and a 3-block tail, so a plain `go test`
+	// reaches the batched lanes.
+	long := make([]byte, 176)
+	for i := range long {
+		long[i] = byte(i*13 + 5)
+	}
+	f.Add(bytes.Repeat([]byte{0x3c}, 32), long)
 	f.Fuzz(func(t *testing.T, key, block []byte) {
 		c, err := NewCipher(key)
 		if n := len(key); n != 16 && n != 24 && n != 32 {

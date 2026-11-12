@@ -148,8 +148,9 @@ func h(x uint32, l []uint32) uint32 {
 }
 
 type block struct {
-	s [4][256]uint32 // the key-dependent S-boxes with the MDS matrix folded in
-	k [40]uint32     // K_0..K_39: input whitening, output whitening, 32 round keys
+	s  [4][256]uint32 // the key-dependent S-boxes with the MDS matrix folded in
+	k  [8]uint32      // K_0..K_7: input whitening, output whitening
+	rk [8][4]uint32   // K_8..K_39: the 32 round keys, four per pair of rounds
 }
 
 // NewCipher returns a Twofish cipher.Block for a 16-, 24- or 32-byte key.
@@ -175,12 +176,17 @@ func NewCipher(key []byte) (cipher.Block, error) {
 		sw[k-1-i] = w
 	}
 	c := new(block)
+	var ks [40]uint32
 	for i := 0; i < 20; i++ {
 		rho := uint32(i) * 0x02020202
 		a := h(rho, me[:k])
 		b := bits.RotateLeft32(h(rho+0x01010101, mo[:k]), 8)
-		c.k[2*i] = a + b
-		c.k[2*i+1] = bits.RotateLeft32(a+2*b, 9)
+		ks[2*i] = a + b
+		ks[2*i+1] = bits.RotateLeft32(a+2*b, 9)
+	}
+	copy(c.k[:], ks[:8])
+	for i := range c.rk {
+		copy(c.rk[i][:], ks[8+4*i:])
 	}
 	for j := 0; j < 4; j++ {
 		for x := 0; x < 256; x++ {
@@ -188,71 +194,4 @@ func NewCipher(key []byte) (cipher.Block, error) {
 		}
 	}
 	return c, nil
-}
-
-func (c *block) BlockSize() int { return BlockSize }
-
-// g returns the two g-function outputs for a and b, with the rotation of b by
-// 8 bits folded into the table indices, then the pseudo-Hadamard transform
-// and the round keys: (t0, t1) of the paper's F function.
-func (c *block) f(a, b, k1, k2 uint32) (uint32, uint32) {
-	t0 := c.s[0][byte(a)] ^ c.s[1][byte(a>>8)] ^ c.s[2][byte(a>>16)] ^ c.s[3][byte(a>>24)]
-	t1 := c.s[0][byte(b>>24)] ^ c.s[1][byte(b)] ^ c.s[2][byte(b>>8)] ^ c.s[3][byte(b>>16)]
-	t0 += t1
-	t1 += t0
-	return t0 + k1, t1 + k2
-}
-
-// Encrypt encrypts the first block of src into dst. dst and src must overlap
-// entirely or not at all.
-func (c *block) Encrypt(dst, src []byte) {
-	if len(src) < BlockSize {
-		panic("twofish: input not full block")
-	}
-	if len(dst) < BlockSize {
-		panic("twofish: output not full block")
-	}
-	a := binary.LittleEndian.Uint32(src) ^ c.k[0]
-	b := binary.LittleEndian.Uint32(src[4:]) ^ c.k[1]
-	cc := binary.LittleEndian.Uint32(src[8:]) ^ c.k[2]
-	d := binary.LittleEndian.Uint32(src[12:]) ^ c.k[3]
-	for r := 8; r < 40; r += 4 {
-		t0, t1 := c.f(a, b, c.k[r], c.k[r+1])
-		cc = bits.RotateLeft32(cc^t0, -1)
-		d = bits.RotateLeft32(d, 1) ^ t1
-		t0, t1 = c.f(cc, d, c.k[r+2], c.k[r+3])
-		a = bits.RotateLeft32(a^t0, -1)
-		b = bits.RotateLeft32(b, 1) ^ t1
-	}
-	binary.LittleEndian.PutUint32(dst, cc^c.k[4])
-	binary.LittleEndian.PutUint32(dst[4:], d^c.k[5])
-	binary.LittleEndian.PutUint32(dst[8:], a^c.k[6])
-	binary.LittleEndian.PutUint32(dst[12:], b^c.k[7])
-}
-
-// Decrypt decrypts the first block of src into dst. dst and src must overlap
-// entirely or not at all.
-func (c *block) Decrypt(dst, src []byte) {
-	if len(src) < BlockSize {
-		panic("twofish: input not full block")
-	}
-	if len(dst) < BlockSize {
-		panic("twofish: output not full block")
-	}
-	a := binary.LittleEndian.Uint32(src) ^ c.k[4]
-	b := binary.LittleEndian.Uint32(src[4:]) ^ c.k[5]
-	cc := binary.LittleEndian.Uint32(src[8:]) ^ c.k[6]
-	d := binary.LittleEndian.Uint32(src[12:]) ^ c.k[7]
-	for r := 40; r > 8; r -= 4 {
-		t0, t1 := c.f(a, b, c.k[r-2], c.k[r-1])
-		cc = bits.RotateLeft32(cc, 1) ^ t0
-		d = bits.RotateLeft32(d^t1, -1)
-		t0, t1 = c.f(cc, d, c.k[r-4], c.k[r-3])
-		a = bits.RotateLeft32(a, 1) ^ t0
-		b = bits.RotateLeft32(b^t1, -1)
-	}
-	binary.LittleEndian.PutUint32(dst, cc^c.k[0])
-	binary.LittleEndian.PutUint32(dst[4:], d^c.k[1])
-	binary.LittleEndian.PutUint32(dst[8:], a^c.k[2])
-	binary.LittleEndian.PutUint32(dst[12:], b^c.k[3])
 }

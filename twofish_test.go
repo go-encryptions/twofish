@@ -74,8 +74,8 @@ func readVectors(t testing.TB, path string) []vector {
 func checkVectors(t *testing.T, path string, wantMin int) {
 	t.Helper()
 	vs := readVectors(t, path)
-	if len(vs) < wantMin {
-		t.Fatalf("%s: only %d vectors parsed, want at least %d", path, len(vs), wantMin)
+	if len(vs) != wantMin {
+		t.Fatalf("%s: %d vectors parsed, want exactly %d", path, len(vs), wantMin)
 	}
 	for _, v := range vs {
 		c, err := NewCipher(v.key)
@@ -112,7 +112,7 @@ func TestKATVariableText(t *testing.T) {
 }
 
 // Botan's src/tests/data/block/twofish.vec.
-func TestBotanVectors(t *testing.T) { checkVectors(t, "testdata/botan-twofish.vec", 50) }
+func TestBotanVectors(t *testing.T) { checkVectors(t, "testdata/botan-twofish.vec", 723) }
 
 // Differential corpus produced by internal/genbotan from the installed
 // `botan cipher` (Twofish/CBC/NoPadding with a zero IV on one block).
@@ -337,9 +337,6 @@ func FuzzRoundTrip(f *testing.F) {
 	f.Add(make([]byte, 24), []byte("0123456789abcdef"))
 	f.Add(bytes.Repeat([]byte{0xff}, 32), bytes.Repeat([]byte{0xa5}, 16))
 	f.Fuzz(func(t *testing.T, key, block []byte) {
-		if len(block) < 16 {
-			return
-		}
 		c, err := NewCipher(key)
 		if n := len(key); n != 16 && n != 24 && n != 32 {
 			if err == nil {
@@ -349,6 +346,26 @@ func FuzzRoundTrip(f *testing.F) {
 		}
 		if err != nil {
 			t.Fatal(err)
+		}
+		// The batched path against block-by-block, on 0..11 fuzzed blocks.
+		n := min(len(block)/16, 11)
+		src := block[:16*n]
+		want := make([]byte, len(src))
+		for o := 0; o < len(src); o += 16 {
+			c.Encrypt(want[o:], src[o:])
+		}
+		bc := c.(blocksCipher)
+		got := make([]byte, len(src))
+		bc.EncryptBlocks(got, src)
+		if !bytes.Equal(got, want) {
+			t.Fatalf("EncryptBlocks differs on %d blocks", n)
+		}
+		bc.DecryptBlocks(got, want)
+		if !bytes.Equal(got, src) {
+			t.Fatalf("DecryptBlocks differs on %d blocks", n)
+		}
+		if len(block) < 16 {
+			return
 		}
 		roundTrip(t, c, block[:16])
 		a, b := make([]byte, 16), make([]byte, 16)

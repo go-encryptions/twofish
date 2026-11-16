@@ -21,6 +21,12 @@ var (
 )
 
 func buildOne() {
+	// BOTAN_ONE_BIN names a prebuilt one.cpp binary (for a host where the test
+	// binary was cross-compiled and the sources are not at hand).
+	if bin := os.Getenv("BOTAN_ONE_BIN"); bin != "" {
+		oneBin = bin
+		return
+	}
 	cache, err := os.UserCacheDir()
 	if err != nil {
 		oneErr = err

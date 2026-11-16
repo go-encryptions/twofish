@@ -7,19 +7,6 @@ import (
 
 func (c *block) BlockSize() int { return BlockSize }
 
-// g0 is the g function of the paper on the word that enters the round
-// unrotated: four look-ups, one per byte, in the tables that fold the S-boxes
-// and the MDS matrix together.
-func (c *block) g0(x uint32) uint32 {
-	return c.s[0][byte(x)] ^ c.s[1][byte(x>>8)] ^ c.s[2][byte(x>>16)] ^ c.s[3][x>>24]
-}
-
-// g1 is g on the word that the round rotates left by 8 bits: the rotation is
-// folded into the choice of table per byte.
-func (c *block) g1(x uint32) uint32 {
-	return c.s[0][x>>24] ^ c.s[1][byte(x)] ^ c.s[2][byte(x>>8)] ^ c.s[3][byte(x>>16)]
-}
-
 // roundKeys is the 32 round keys K_8..K_39 as eight groups of four, one group
 // per pair of rounds.
 func (c *block) roundKeys() *[8][4]uint32 { return &c.rk }

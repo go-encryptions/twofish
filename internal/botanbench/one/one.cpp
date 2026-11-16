@@ -20,6 +20,10 @@ int main(int argc, char** argv) {
    if(argc != 3) {
       return 2;
    }
+   if((std::strcmp(argv[1], "one") != 0 && std::strcmp(argv[1], "n") != 0) ||
+      (std::strcmp(argv[2], "encrypt") != 0 && std::strcmp(argv[2], "decrypt") != 0)) {
+      return 2;
+   }
    const bool one = std::strcmp(argv[1], "one") == 0;
    const bool dec = std::strcmp(argv[2], "decrypt") == 0;
    auto c = Botan::BlockCipher::create_or_throw("Twofish");

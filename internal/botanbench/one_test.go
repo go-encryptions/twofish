@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,7 +31,11 @@ func buildOne() {
 		return
 	}
 	oneBin = filepath.Join(dir, "one")
-	args := []string{"-std=c++20", "-O2", filepath.Join("one", "one.cpp"), "-lbotan-3", "-o", oneBin}
+	// The binary may run from any directory (abbench runs it from the repo
+	// root), so the source is found from this file, not the working directory.
+	_, here, _, _ := runtime.Caller(0)
+	src := filepath.Join(filepath.Dir(here), "one", "one.cpp")
+	args := []string{"-std=c++20", "-O2", src, "-lbotan-3", "-o", oneBin}
 	if inc := os.Getenv("BOTAN_PREFIX"); inc != "" {
 		args = append([]string{"-I" + filepath.Join(inc, "include", "botan-3"), "-L" + filepath.Join(inc, "lib"),
 			"-Wl,-rpath," + filepath.Join(inc, "lib")}, args...)

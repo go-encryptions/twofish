@@ -63,14 +63,17 @@ Reference: Botan 3.14.1 (`botan speed --buf-size=1024 Twofish`, wrapped as Go be
 
 | 1 KiB, one core | encrypt | decrypt |
 |---|---|---|
-| this package, `EncryptBlocks` / `DecryptBlocks` | 1.305 µs ± 2 % (749 MiB/s) | 1.287 µs ± 2 % (759 MiB/s) |
-| Botan 3.14.1 | 1.726 µs ± 2 % (566 MiB/s) | 1.733 µs ± 2 % (564 MiB/s) |
-| this package, `Encrypt` / `Decrypt` one block at a time | 3.161 µs ± 5 % (309 MiB/s) | 3.147 µs ± 5 % (310 MiB/s) |
+| this package, `EncryptBlocks` / `DecryptBlocks` | 1.208 µs ± 1 % (809 MiB/s) | 1.196 µs ± 0 % (817 MiB/s) |
+| Botan 3.14.1, `botan speed` (one 64-block call, two blocks interleaved) | 1.726 µs ± 2 % (566 MiB/s) | 1.733 µs ± 2 % (564 MiB/s) |
+| this package, `Encrypt` / `Decrypt` one block at a time | 2.938 µs ± 2 % (332 MiB/s) | 2.916 µs ± 0 % (335 MiB/s) |
+| Botan 3.14.1, 64 one-block calls (`internal/botanbench/one`) | about 2.88 µs | about 2.86 µs |
 | `golang.org/x/crypto/twofish`, one block at a time | 6.888 µs ± 4 % (142 MiB/s) | 6.863 µs ± 1 % (142 MiB/s) |
 
-The batch path is **1.32x faster than Botan**. The one-block path, which is what a caller going through `cipher.Block` gets (as `go-encryptions/xts` does), is **2.2x faster than x/crypto but 1.8x slower than Botan**: a single block is a chain of 16 dependent rounds, each waiting for its table loads, so it is bound by latency, not by the number of operations; Botan reaches its figure by running two blocks side by side, which `cipher.Block` cannot express. The bounds checks are gone from that path and the key additions are off the critical chain; the remaining gap is tracked as an issue. Callers able to hand over several blocks at once should use `EncryptBlocks`.
+The batch path is **1.43x faster than Botan**. The one-block path, which is what a caller going through `cipher.Block` gets (as `go-encryptions/xts` does), is **2.3x faster than x/crypto and about 1.03x slower than Botan called one block at a time** (a residual within the noise of the runs, kept open as an issue). Compare like with like: `botan speed` hands Botan 64 blocks in one call, and `twofish.cpp` `encrypt_n` runs them two at a time (lines 184-226) while the core overlaps consecutive pairs; a one-block call takes the single-block tail (lines 228-251), the shape of `cipher.Block`. A single block is a chain of 16 dependent rounds, each waiting for its table loads, so it is bound by latency, not by the number of operations. The bounds checks are gone from that path, the key additions are off the critical chain, and the byte of each look-up is extracted with a mask (one UBFX on arm64) rather than a byte conversion (UBFX plus a redundant UXTB), which took 7 % off both paths. Callers able to hand over several blocks at once should use `EncryptBlocks`.
 
-Reproduce: `go test -c -o twofish.test .`, `go test -c -o botan.test ./internal/botanbench`, then `abbench --base ./twofish.test --head ./botan.test --max-load 8 -n 6 --base-arg='-test.bench=^Benchmark(En|De)cryptBlocks$' --head-arg=-test.bench=. --rename-base EncryptBlocks=Encrypt --rename-base DecryptBlocks=Decrypt -- -test.run '^$'`; the x/crypto side is the separate module `internal/xcryptobench`.
+On amd64 (AMD Ryzen 9 7950X, core 4, Linux) one block at a time is 3.04 µs, against about 15.5 µs for Botan called one block at a time: its AVX-512 path pays a fixed cost per call, so a one-block call is **5x slower than this package** there. Botan's 64-block call is 0.88 µs; that is not what `cipher.Block` can ask for.
+
+Reproduce: `go test -c -o twofish.test .`, `go test -c -o botan.test ./internal/botanbench` (for the one-block rows use `--head-arg=-test.bench=OneBlock` with `--rename-head OneBlockEncrypt=Encrypt --rename-head OneBlockDecrypt=Decrypt` and `--base-arg='-test.bench=^Benchmark(En|De)crypt$'`; it needs `c++` and Botan's headers), then `abbench --base ./twofish.test --head ./botan.test --max-load 8 -n 6 --base-arg='-test.bench=^Benchmark(En|De)cryptBlocks$' --head-arg=-test.bench=. --rename-base EncryptBlocks=Encrypt --rename-base DecryptBlocks=Decrypt -- -test.run '^$'`; the x/crypto side is the separate module `internal/xcryptobench`.
 
 ## License
 
